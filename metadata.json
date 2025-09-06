@@ -1,0 +1,5 @@
+{
+  "name": "Zest Messenger",
+  "description": "A modern messenger and story-sharing app for Nepali users. This prototype showcases the UI/UX with mock data, designed to be mobile-first and ready for Capacitor integration with a Firebase backend.",
+  "requestFramePermissions": []
+}
