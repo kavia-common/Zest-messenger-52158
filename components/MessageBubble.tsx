@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import type { Message, User, ReactionType, Reaction } from '../types';
 import Icon from './Icon';
@@ -7,6 +6,7 @@ interface MessageBubbleProps {
   message: Message;
   sender: User;
   isMe: boolean;
+  currentUserId: string;
   onAddReaction: (reaction: Reaction) => void;
 }
 
@@ -23,21 +23,20 @@ const ReactionPill: React.FC<{ emoji: ReactionType; count: number, reacted: bool
   )
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, sender, isMe, onAddReaction }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, sender, isMe, currentUserId, onAddReaction }) => {
   const [showReactions, setShowReactions] = useState(false);
-  const myUserId = 'user-me';
-
+  
   const aggregatedReactions = message.reactions.reduce((acc, reaction) => {
     acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
     return acc;
   }, {} as Record<ReactionType, number>);
 
   const hasReacted = (emoji: ReactionType): boolean => {
-    return message.reactions.some(r => r.userId === myUserId && r.emoji === emoji);
+    return message.reactions.some(r => r.userId === currentUserId && r.emoji === emoji);
   };
 
   const handleReactionClick = (emoji: ReactionType) => {
-    onAddReaction({ userId: myUserId, emoji });
+    onAddReaction({ userId: currentUserId, emoji });
     setShowReactions(false);
   }
 

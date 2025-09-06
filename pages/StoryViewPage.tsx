@@ -1,36 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { getStoryForUser } from '../backend/services';
 import Avatar from '../components/Avatar';
 import Icon from '../components/Icon';
 import type { UserStory, User } from '../types';
 
-// MOCK DATA - To be replaced with Firebase
-const mockStories: UserStory[] = [
-  { 
-    userId: 'user-1', // Corresponds to a mock user ID
-    stories: [
-      { id: 'story-1-1', type: 'image', url: 'https://picsum.photos/seed/story1/1080/1920', duration: 5 },
-      { id: 'story-1-2', type: 'image', url: 'https://picsum.photos/seed/story2/1080/1920', duration: 5 },
-    ],
-    viewedBy: [] 
-  },
-];
-
-const mockUsers: User[] = [
-    { id: 'user-1', name: 'Sunita Rai', email: 'sunita@example.com', avatarUrl: 'https://picsum.photos/seed/sunita/200', online: true },
-]
-
 const StoryViewPage: React.FC<{ userId: string }> = ({ userId }) => {
   const { navigateToHome } = useAppContext();
-  const { currentUser } = useAuth();
-  
-  // Using mock data for now
-  const userStory = mockStories.find(s => s.userId === userId);
-  const user = mockUsers.find(u => u.id === userId);
-
+  const [userStory, setUserStory] = useState<UserStory | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const fetchStory = async () => {
+      const data = await getStoryForUser(userId);
+      if (data) {
+        setUserStory(data.story);
+        setUser(data.user);
+      }
+    };
+    fetchStory();
+  }, [userId]);
 
   useEffect(() => {
     if (!userStory) return;
@@ -79,7 +71,7 @@ const StoryViewPage: React.FC<{ userId: string }> = ({ userId }) => {
     }
   };
 
-  if (!userStory || !user || !currentUser) {
+  if (!userStory || !user) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-black">
         <p className="text-white">Story not found.</p>

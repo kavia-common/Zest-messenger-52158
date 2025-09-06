@@ -1,20 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { searchUsersByName, handleSendFriendRequest } from '../firebase/services';
+import { searchUsersByName, handleSendFriendRequest } from '../backend/services';
 import type { User } from '../types';
 import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 import { useAppContext } from '../context/AppContext';
 
 const SearchPage: React.FC = () => {
-    const { currentUser } = useAuth();
+    const { currentUser, refreshCurrentUser } = useAuth();
     const { navigateToProfile } = useAppContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [results, setResults] = useState<User[]>([]);
     const [loading, setLoading] = useState(false);
-    // Keep track of which users have had a request sent to them in this session for optimistic UI
-    const [sentRequests, setSentRequests] = useState<string[]>([]);
-
+    
     useEffect(() => {
         const handler = setTimeout(async () => {
             if (searchTerm.trim() && currentUser) {
@@ -35,15 +33,11 @@ const SearchPage: React.FC = () => {
     const onAddFriend = async (userId: string) => {
         if (!currentUser) return;
         try {
-            // Add to local state for instant optimistic UI update
-            setSentRequests(prev => [...prev, userId]);
+            // Optimistically update the button state by refreshing the user
             await handleSendFriendRequest(currentUser.id, userId);
-            // The global currentUser state will update via AuthContext,
-            // which will permanently reflect the "Sent" status on subsequent renders.
+            await refreshCurrentUser();
         } catch (error) {
             console.error(error);
-            // Revert local state on error
-            setSentRequests(prev => prev.filter(id => id !== userId));
             alert("Failed to send friend request.");
         }
     }
@@ -71,7 +65,7 @@ const SearchPage: React.FC = () => {
                 {!loading && results.length === 0 && searchTerm && <p>No users found.</p>}
                 <div className="space-y-4">
                     {results.map(user => {
-                        const isRequestSent = currentUser.friendRequestsSent?.includes(user.id) || sentRequests.includes(user.id);
+                        const isRequestSent = currentUser.friendRequestsSent?.includes(user.id);
                         const isFriend = currentUser.friends?.includes(user.id);
                         
                         return (

@@ -1,20 +1,12 @@
-
 import React, { useEffect, useRef, useState } from 'react';
-// Use Firebase v8 imports.
-// FIX: Corrected firebase import to use compat version.
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/firestore';
-import { db } from '../firebase/config';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { getChatById, handleSendMessage as sendMessageService } from '../backend/services';
 import MessageBubble from '../components/MessageBubble';
 import ChatInput from '../components/ChatInput';
 import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 import type { Reaction, Chat, User, Message } from '../types';
-
-// Define Timestamp type for v8.
-type Timestamp = firebase.firestore.Timestamp;
 
 interface ChatPageProps {
   chatId: string;
@@ -30,42 +22,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatId }) => {
   useEffect(() => {
     if (!currentUser) return;
     
-    // Use v8 syntax to get a document reference and listen for changes.
-    const chatDocRef = db.collection("chats").doc(chatId);
-    const unsub = chatDocRef.onSnapshot(async (docSnap) => {
-      if (docSnap.exists) {
-        const data = docSnap.data() as Omit<Chat, 'id' | 'users'> & { userIds: string[] };
-        
-        // Fetch full user objects for all participants in the chat.
-        const userPromises = (data.userIds || []).map(id => db.collection("users").doc(id).get());
-        const userDocs = await Promise.all(userPromises);
-        const chatUsers = userDocs.filter(d => d.exists).map(userDoc => ({ id: userDoc.id, ...userDoc.data() } as User));
-
-        const otherUserData = chatUsers.find(u => u.id !== currentUser.id);
-        setOtherUser(otherUserData || null);
-
-        // Convert Firestore Timestamps to milliseconds for each message.
-        const messages = (data.messages || []).map((msg: any) => ({
-          ...msg,
-          timestamp: (msg.timestamp as Timestamp)?.toMillis() || msg.timestamp || Date.now(),
-        }));
-        
-        setChat({
-            id: docSnap.id,
-            messages,
-            unreadCount: data.unreadCount,
-            users: chatUsers,
-            userIds: data.userIds,
-        });
-
-      } else {
-        console.error("Chat document not found:", chatId);
+    const fetchChatData = async () => {
+      try {
+        const fetchedChat = await getChatById(chatId, currentUser.id);
+        if (fetchedChat) {
+          setChat(fetchedChat);
+          const other = fetchedChat.users.find(u => u.id !== currentUser.id);
+          setOtherUser(other || null);
+        } else {
+           throw new Error("Chat not found");
+        }
+      } catch (error) {
+        console.error("Failed to fetch chat:", error);
         setChat(null);
         setOtherUser(null);
       }
-    });
+    };
 
-    return () => unsub(); // Cleanup the listener on component unmount.
+    fetchChatData();
   }, [chatId, currentUser]);
   
   useEffect(() => {
@@ -73,35 +47,56 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatId }) => {
   }, [chat?.messages]);
 
   const handleSendMessage = async (text: string) => {
-    if (!text.trim() || !currentUser) return;
+    if (!text.trim() || !currentUser || !chat) return;
 
-    // Use `firebase.firestore.FieldValue.serverTimestamp()` for v8.
-    const newMessage: Omit<Message, 'timestamp'> & { timestamp: any } = {
-      id: `msg-${Date.now()}`,
+    // Optimistic UI update
+    const tempId = `msg-temp-${Date.now()}`;
+    const newMessage: Message = {
+      id: tempId,
       senderId: currentUser.id,
       text,
       reactions: [],
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      timestamp: Date.now(),
     };
-
-    const chatDocRef = db.collection("chats").doc(chatId);
-    // Use v8 `.update()` and `firebase.firestore.FieldValue.arrayUnion()`.
-    await chatDocRef.update({
-      messages: firebase.firestore.FieldValue.arrayUnion(newMessage)
+    
+    setChat(prevChat => {
+        if (!prevChat) return null;
+        return {
+            ...prevChat,
+            messages: [...prevChat.messages, newMessage],
+        }
     });
+
+    try {
+        // In a real app, the service would return the final message object with the real ID and timestamp
+        await sendMessageService(chat.id, currentUser.id, text);
+        // Here you could update the message with the real ID from the server if needed
+    } catch(error) {
+        console.error("Failed to send message:", error);
+        // Revert optimistic update on error
+        setChat(prevChat => {
+            if (!prevChat) return null;
+            return {
+                ...prevChat,
+                messages: prevChat.messages.filter(m => m.id !== tempId)
+            }
+        });
+    }
   };
 
   const handleAddReaction = async (messageId: string, reaction: Reaction) => {
     if (!chat || !currentUser) return;
-
+    
+    // This is a local-only update for now. A real backend service would be needed.
     const updatedMessages = chat.messages.map(msg => {
       if (msg.id === messageId) {
         const existingReactionIndex = msg.reactions.findIndex(r => r.userId === currentUser.id);
         let newReactions = [...msg.reactions];
 
         if (existingReactionIndex > -1) {
+          // If reacting with the same emoji, remove reaction. Otherwise, update it.
           if (msg.reactions[existingReactionIndex].emoji === reaction.emoji) {
-            newReactions = msg.reactions.filter(r => r.userId !== currentUser.id);
+            newReactions.splice(existingReactionIndex, 1);
           } else {
             newReactions[existingReactionIndex] = reaction;
           }
@@ -113,9 +108,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatId }) => {
       return msg;
     });
 
-    const chatDocRef = db.collection("chats").doc(chatId);
-    // Use v8 `.update()` method.
-    await chatDocRef.update({ messages: updatedMessages });
+    setChat({ ...chat, messages: updatedMessages });
+    // In a real app: await updateReactionsOnServer(chatId, messageId, reaction);
   };
   
   if (!chat || !otherUser || !currentUser) {
@@ -157,7 +151,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatId }) => {
               message={message}
               sender={sender}
               isMe={message.senderId === currentUser.id}
-              onAddReaction={(reaction) => handleAddReaction(message.id, { ...reaction, userId: currentUser.id })}
+              currentUserId={currentUser.id}
+              onAddReaction={(reaction) => handleAddReaction(message.id, reaction)}
             />
           );
         })}

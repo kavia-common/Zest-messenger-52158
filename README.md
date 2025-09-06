@@ -1,103 +1,104 @@
+# Zest Messenger - MongoDB Backend Guide
 
-# Zest Messenger - Firebase Setup Guide
+This guide explains the app's current architecture, which uses a **simulated backend** to mimic a Node.js/Express server connected to a MongoDB Atlas database. This setup removes the dependency on Firebase and allows for development without a live backend.
 
-This guide provides the necessary steps to integrate Zest with a Firebase backend. The current version of the app uses mock data, but it is structured to easily connect to Firebase services.
+## Current Architecture: Simulated Backend
 
-## Prerequisites
+The application currently operates entirely on the client-side. All backend logic and data storage are handled by a mock service located at `backend/services.ts`.
 
-1.  A Google Account.
-2.  `node` and `npm` installed on your machine.
-3.  A working React project (this codebase).
+-   **Data:** The "database" is a set of in-memory JavaScript arrays that are initialized when the app loads. This data is not persistent and will reset on page refresh.
+-   **API Calls:** All functions in `backend/services.ts` (e.g., `handleLogin`, `getChatsForUser`) are `async` and use a simulated delay to mimic real network requests.
+-   **Authentication:** User sessions are managed using the browser's `localStorage`. When a user logs in, their user ID is stored, and on subsequent visits, this ID is used to "authenticate" them against the mock user database.
 
-## Step 1: Create a Firebase Project
+## Step 1: Build a Real Node.js Backend
 
-1.  Go to the [Firebase Console](https://console.firebase.google.com/).
-2.  Click on **"Add project"**.
-3.  Give your project a name (e.g., "ZestMessenger") and follow the on-screen instructions.
-4.  Once the project is created, you will be redirected to the project dashboard.
+To connect this frontend to a real database, you need to build a backend server. A popular choice is the MERN stack (MongoDB, Express, React, Node.js).
 
-## Step 2: Set Up Firebase for a Web App
+### A. Set Up a MongoDB Atlas Cluster
 
-1.  On your project dashboard, click the Web icon (`</>`) to add a web app to your project.
-2.  Register your app with a nickname (e.g., "Zest Web App").
-3.  Firebase will provide you with a configuration object. Copy this object.
+1.  Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) and create a free account.
+2.  Create a new project and build a new cluster (the M0 free tier is sufficient for development).
+3.  Follow the instructions to create a database user and whitelist your IP address.
+4.  Get your connection string (select "Connect your application"). You will need this for your Node.js server.
 
-## Step 3: Integrate Firebase SDK into the React App
+### B. Create a Node.js/Express Server
 
-1.  **Install the Firebase SDK:**
+You will need to create API endpoints for all the functionalities currently in `backend/services.ts`.
+
+1.  **Project Setup:**
     ```bash
-    npm install firebase
+    mkdir zest-server
+    cd zest-server
+    npm init -y
+    npm install express mongoose cors dotenv bcryptjs jsonwebtoken
     ```
 
-2.  **Create a Firebase configuration file:**
-    Create a new directory `firebase` in the root of your project and add a file named `config.ts` (`firebase/config.ts`).
+2.  **Server Structure:**
+    Create endpoints for authentication, users, chats, etc. For example, a login endpoint might look like this:
 
-3.  **Add your Firebase config to `firebase/config.ts`:**
-    Paste the configuration object you copied earlier into this file and initialize Firebase.
+    ```javascript
+    // server.js (simplified example)
+    const express = require('express');
+    const mongoose = require('mongoose');
+    require('dotenv').config();
 
+    const app = express();
+    app.use(express.json());
+
+    // Connect to MongoDB Atlas
+    mongoose.connect(process.env.MONGO_URI)
+      .then(() => console.log('MongoDB connected'))
+      .catch(err => console.log(err));
+
+    // --- Define Mongoose Schemas (User, Chat, etc.) ---
+    // --- Define API Routes (app.post('/api/auth/login', ...), etc.) ---
+    
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    ```
+
+## Step 2: Connect the React Frontend to Your Backend
+
+Once your backend is running, you can replace the mock service calls with real `fetch` or `axios` requests.
+
+1.  **Replace Service Logic:**
+    Go into `backend/services.ts` and replace the mock logic with actual HTTP requests to your server.
+
+    **Before (Mock):**
     ```typescript
-    // firebase/config.ts
-    import { initializeApp } from "firebase/app";
-    import { getAuth } from "firebase/auth";
-    import { getFirestore } from "firebase/firestore";
-    import { getStorage } from "firebase/storage";
-
-    // Your web app's Firebase configuration
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_AUTH_DOMAIN",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_STORAGE_BUCKET",
-      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-      appId: "YOUR_APP_ID"
+    // backend/services.ts
+    export const handleLogin = async (loginData: LoginData): Promise<User> => {
+      // ... mock logic finding user in an array
     };
-
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-
-    // Export Firebase services
-    export const auth = getAuth(app);
-    export const db = getFirestore(app);
-    export const storage = getStorage(app);
     ```
-    **IMPORTANT:** Replace the placeholder values with your actual Firebase config. For security, use environment variables to store these keys in a production app.
 
-## Step 4: Set Up Firebase Services
+    **After (Real API Call):**
+    ```typescript
+    // backend/services.ts
+    const API_URL = 'http://localhost:5000/api'; // Your server URL
 
-### A. Authentication
+    export const handleLogin = async (loginData: LoginData): Promise<User> => {
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData),
+      });
 
-1.  In the Firebase Console, go to **Authentication** from the left-hand menu.
-2.  Click the **"Get started"** button.
-3.  On the **Sign-in method** tab, enable the providers you want to use (e.g., **Email/Password**, **Phone**).
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to log in');
+      }
 
-### B. Firestore Database
+      const { user, token } = await response.json();
+      // Store the token (e.g., in localStorage) for subsequent requests
+      localStorage.setItem('authToken', token);
+      return user;
+    };
+    ```
 
-1.  In the Firebase Console, go to **Firestore Database**.
-2.  Click **"Create database"**.
-3.  Start in **test mode** for initial development. This allows open read/write access.
-    **WARNING:** Test mode is insecure. You **must** configure security rules before launching your app.
-4.  Choose a location for your database.
+2.  **Handle Real-Time Updates (Optional):**
+    The original app used Firestore's real-time listeners. To replicate this with a MongoDB backend, you would need to implement WebSockets using a library like `socket.io`.
+    -   Your server would emit events when new messages are created.
+    -   Your React client would listen for these events and update the UI accordingly.
 
-    **Data Structures:**
-    You'll need to create collections for `users`, `chats`, and `stories`.
-    -   `users/{userId}`: Stores user profile information.
-    -   `chats/{chatId}`: Stores chat metadata.
-    -   `chats/{chatId}/messages/{messageId}`: A subcollection for messages within a chat.
-    -   `stories/{storyId}`: Stores story information.
-
-### C. Firebase Storage
-
-1.  In the Firebase Console, go to **Storage**.
-2.  Click **"Get started"**.
-3.  Follow the setup wizard, using the default security rules for development.
-    **WARNING:** Like Firestore, you **must** configure proper security rules for production to protect user files.
-
-## Step 5: Replace Mock Data with Firebase Calls
-
-Now you can go through the application and replace the mock data hooks (`hooks/useMockData.ts`) with real-time Firebase calls.
-
--   Use `onSnapshot` from Firestore for real-time updates on chats and messages.
--   Use Firebase Storage `uploadBytes` and `getDownloadURL` for handling image uploads for messages and stories.
--   Use Firebase Authentication functions (`createUserWithEmailAndPassword`, `signInWithEmailAndPassword`, etc.) for user management.
-
-This setup provides a solid foundation for building a fully functional, real-time messaging app with Zest.
+This setup provides a clear path from a client-only prototype to a full-stack, production-ready application.

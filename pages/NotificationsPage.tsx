@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getFriendRequests, handleAcceptFriendRequest, handleDeclineFriendRequest } from '../firebase/services';
+import { getFriendRequests, handleAcceptFriendRequest, handleDeclineFriendRequest } from '../backend/services';
 import type { FriendRequest } from '../types';
 import Avatar from '../components/Avatar';
 import { useAppContext } from '../context/AppContext';
 
 const NotificationsPage: React.FC = () => {
-    const { currentUser } = useAuth();
+    const { currentUser, refreshCurrentUser } = useAuth();
     const { navigateToProfile } = useAppContext();
     const [requests, setRequests] = useState<FriendRequest[]>([]);
     const [loading, setLoading] = useState(true);
@@ -24,6 +24,7 @@ const NotificationsPage: React.FC = () => {
         if (!currentUser) return;
         await handleAcceptFriendRequest(currentUser.id, requesterId);
         setRequests(prev => prev.filter(req => req.fromId !== requesterId));
+        await refreshCurrentUser(); // Refresh global state
         alert("Friend request accepted!");
     };
     
@@ -31,6 +32,7 @@ const NotificationsPage: React.FC = () => {
         if (!currentUser) return;
         await handleDeclineFriendRequest(currentUser.id, requesterId);
         setRequests(prev => prev.filter(req => req.fromId !== requesterId));
+        await refreshCurrentUser(); // Refresh global state
     };
 
     return (

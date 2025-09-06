@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { User } from '../types';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { getUserById, handleSendFriendRequest, handleLogout } from '../firebase/services';
+import { getUserById, handleSendFriendRequest, handleLogout } from '../backend/services';
 import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 
@@ -11,8 +11,8 @@ interface ProfilePageProps {
 }
 
 const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
-  const { navigateToHome, navigateToChat } = useAppContext();
-  const { currentUser } = useAuth();
+  const { navigateToHome } = useAppContext();
+  const { currentUser, refreshCurrentUser, setCurrentUser } = useAuth();
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [isSendingRequest, setIsSendingRequest] = useState(false);
 
@@ -25,14 +25,21 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           setIsSendingRequest(true);
           try {
             await handleSendFriendRequest(currentUser.id, profileUser.id);
-            // No need to alert. The UI will update automatically via AuthContext.
-            // The button will change to "Request Sent" once currentUser is updated.
+            // After sending the request, refresh the currentUser data to get the updated `friendRequestsSent` list
+            await refreshCurrentUser();
           } catch(error) {
               console.error(error);
               alert("Failed to send request.");
-              setIsSendingRequest(false); // Re-enable button on error
+          } finally {
+            setIsSendingRequest(false);
           }
       }
+  }
+
+  const onLogout = async () => {
+    await handleLogout();
+    setCurrentUser(null);
+    // AuthGate will now show the AuthPage
   }
 
   const getRelationshipStatus = () => {
@@ -103,7 +110,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm">
             {relationship === 'self' && (
                 <ul className="divide-y divide-gray-200 dark:divide-gray-800">
-                    <li onClick={handleLogout} className="p-4 flex justify-between items-center cursor-pointer text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+                    <li onClick={onLogout} className="p-4 flex justify-between items-center cursor-pointer text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
                     <span>Log Out</span>
                     <Icon name="logout" className="w-5 h-5" />
                     </li>

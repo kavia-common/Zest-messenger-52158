@@ -1,19 +1,11 @@
-
 import React, { useState, useEffect } from 'react';
-// FIX: Use Firebase v8 imports. The Timestamp type will come from the firebase object.
-// FIX: Corrected firebase import to use compat version.
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/firestore';
-import { db } from '../firebase/config';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { getStories, getChatsForUser } from '../backend/services';
 import StoryBubble from '../components/StoryBubble';
 import Avatar from '../components/Avatar';
 import Icon from '../components/Icon';
 import type { Chat, User, UserStory } from '../types';
-
-// FIX: Define Timestamp type for v8.
-type Timestamp = firebase.firestore.Timestamp;
 
 const ChatListItem: React.FC<{ chat: Chat; currentUserId: string }> = ({ chat, currentUserId }) => {
   const { navigateToChat } = useAppContext();
@@ -60,71 +52,35 @@ const HomePage: React.FC = () => {
   const { navigateToStory } = useAppContext();
   const { currentUser } = useAuth();
   const [stories, setStories] = useState<UserStory[]>([]);
+  const [storyUsers, setStoryUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [usersCache, setUsersCache] = useState<Record<string, User>>({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!currentUser?.id) return;
 
-    // Listener for stories (can be expanded)
-    // FIX: Use v8 `db.collection().onSnapshot()` syntax.
-    const storiesUnsub = db.collection("stories").onSnapshot((snapshot) => {
-      setStories(snapshot.docs.map(doc => ({ ...doc.data(), userId: doc.id } as UserStory)));
-    });
-
-    // Listener for chats where the current user is a participant
-    // FIX: Use v8 chained query syntax.
-    const chatsQuery = db.collection("chats").where("userIds", "array-contains", currentUser.id);
-    const chatsUnsub = chatsQuery.onSnapshot(async (snapshot) => {
-      const chatsFromDb = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const messages = (data.messages || []).map((msg: any) => ({
-          ...msg,
-          // FIX: The `Timestamp` type is now defined locally.
-          timestamp: (msg.timestamp as Timestamp)?.toMillis() || msg.timestamp || Date.now(),
-        }));
-        return {
-          id: doc.id,
-          ...data,
-          messages,
-        } as Chat;
-      });
-
-      // Fetch user data for all participants in the fetched chats
-      // FIX: Ensure user IDs are treated as strings to prevent indexing errors.
-      const allUserIds = new Set<string>(chatsFromDb.flatMap(c => c.userIds));
-      const usersToFetch = Array.from(allUserIds).filter(id => !usersCache[id]);
-
-      const newUsersCache = { ...usersCache };
-
-      if (usersToFetch.length > 0) {
-        // In a real app, you might query this more efficiently.
-        const usersRef = db.collection("users");
-        // Note: Firestore 'in' query is limited to 10 items. For more, batch requests.
-        const usersQuery = usersRef.where('id', 'in', usersToFetch.slice(0, 10));
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [fetchedStories, fetchedChats] = await Promise.all([
+          getStories(),
+          getChatsForUser(currentUser.id)
+        ]);
         
-        // FIX: Use a one-time `get()` instead of a nested `onSnapshot` to prevent bugs and memory leaks.
-        const userSnap = await usersQuery.get();
-        userSnap.forEach(doc => {
-            newUsersCache[doc.id] = { id: doc.id, ...doc.data() } as User;
-        });
-        setUsersCache(newUsersCache);
+        // In a real app, you might fetch only the users you need.
+        // For the mock service, we can get all users associated with stories easily.
+        setStories(fetchedStories.stories);
+        setStoryUsers(fetchedStories.users);
+        setChats(fetchedChats);
+
+      } catch (error) {
+        console.error("Failed to fetch homepage data:", error);
+      } finally {
+        setLoading(false);
       }
-      
-      // FIX: Use the newUsersCache to populate chats immediately, instead of relying on a re-render.
-      const populatedChats = chatsFromDb.map(chat => ({
-          ...chat,
-          users: chat.userIds.map(id => newUsersCache[id]).filter(Boolean)
-      }));
-
-      setChats(populatedChats);
-    });
-
-    return () => {
-      storiesUnsub();
-      chatsUnsub();
     };
-  // FIX: Removed usersCache from dependency array to prevent potential infinite loops.
+
+    fetchData();
   }, [currentUser?.id]);
 
   // Sort chats by the timestamp of their last message
@@ -154,7 +110,7 @@ const HomePage: React.FC = () => {
       <div className="p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex space-x-4 overflow-x-auto pb-2 -mb-2">
            {stories.map(userStory => {
-             const user = usersCache[userStory.userId];
+             const user = storyUsers.find(u => u.id === userStory.userId);
              if (!user) return null;
              const hasUnseen = !userStory.viewedBy.includes(currentUser.id);
              return <StoryBubble key={user.id} user={user} hasUnseenStories={hasUnseen} onClick={() => navigateToStory(user.id)} />;
@@ -164,9 +120,13 @@ const HomePage: React.FC = () => {
       
       {/* Chat List */}
       <div>
-        {sortedChats.map(chat => (
-          <ChatListItem key={chat.id} chat={chat} currentUserId={currentUser.id}/>
-        ))}
+        {loading ? (
+            <p className="text-center text-gray-500 p-4">Loading chats...</p>
+        ) : (
+            sortedChats.map(chat => (
+              <ChatListItem key={chat.id} chat={chat} currentUserId={currentUser.id}/>
+            ))
+        )}
       </div>
     </div>
   );

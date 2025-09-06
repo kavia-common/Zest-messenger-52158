@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   name: string;
@@ -58,7 +57,6 @@ export interface FriendRequest {
     fromUser?: User; // Optional, to be populated for UI
 }
 
-// FIX: Add missing type definitions used in firebase/services.ts
 export interface SignUpData {
     name: string;
     email: string;

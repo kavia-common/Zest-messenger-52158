@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { handleLogin, handleSignUp, handleGoogleSignIn } from '../firebase/services';
+import { handleLogin, handleSignUp, handleGoogleSignIn } from '../backend/services';
+import { useAuth } from '../context/AuthContext';
 import Icon from '../components/Icon';
+import { User } from '../types';
 
 const AuthPage: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -9,6 +11,7 @@ const AuthPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const { setCurrentUser } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,13 +31,28 @@ const AuthPage: React.FC = () => {
     }
 
     try {
+      let user: User | null = null;
       if (isLogin) {
-        await handleLogin({ email, password });
+        user = await handleLogin({ email, password });
       } else {
-        await handleSignUp({ name, email, password });
+        user = await handleSignUp({ name, email, password });
       }
-      // On success, AuthProvider will handle navigation
+      setCurrentUser(user);
+      // On success, AuthGate will see the new currentUser and show the app.
     } catch (err: any) {
+      setError(err.message || 'An error occurred.');
+    } finally {
+        setLoading(false);
+    }
+  };
+  
+  const onGoogleSignIn = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const user = await handleGoogleSignIn();
+      setCurrentUser(user);
+    } catch(err: any) {
       setError(err.message || 'An error occurred.');
     } finally {
         setLoading(false);
@@ -104,7 +122,7 @@ const AuthPage: React.FC = () => {
           </div>
         </div>
 
-        <button onClick={handleGoogleSignIn} className="w-full flex items-center justify-center py-2.5 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
+        <button onClick={onGoogleSignIn} disabled={loading} className="w-full flex items-center justify-center py-2.5 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50">
             <Icon name="google" className="w-5 h-5 mr-2" />
             Sign in with Google
         </button>
