@@ -4,6 +4,9 @@ import { getFriendRequests, handleAcceptFriendRequest, handleDeclineFriendReques
 import type { FriendRequest } from '../types';
 import Avatar from '../components/Avatar';
 import { useAppContext } from '../context/AppContext';
+import { subscribe, unsubscribe } from '../src/realtime/wsClient';
+import type { FriendRequestCreatedPayload, FriendRequestUpdatedPayload } from '../src/realtime/events';
+import { createDebouncedRefetch } from '../src/realtime/refetch';
 
 const NotificationsPage: React.FC = () => {
     const { currentUser, refreshCurrentUser } = useAuth();
@@ -12,12 +15,37 @@ const NotificationsPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (currentUser) {
-            getFriendRequests(currentUser.id).then(data => {
-                setRequests(data);
-                setLoading(false);
-            });
-        }
+        if (!currentUser) return;
+
+        const fetch = async () => {
+          setLoading(true);
+          const data = await getFriendRequests(currentUser.id);
+          setRequests(data);
+          setLoading(false);
+        };
+
+        const debouncedFetch = createDebouncedRefetch(fetch, 150);
+
+        void fetch();
+
+        const onCreated = (payload: FriendRequestCreatedPayload) => {
+          if (payload.toId !== currentUser.id) return;
+          debouncedFetch();
+        };
+
+        const onUpdated = (payload: FriendRequestUpdatedPayload) => {
+          // If I was the recipient, my list changes.
+          if (payload.toId !== currentUser.id) return;
+          debouncedFetch();
+        };
+
+        subscribe('FriendRequestCreated', onCreated);
+        subscribe('FriendRequestUpdated', onUpdated);
+
+        return () => {
+          unsubscribe('FriendRequestCreated', onCreated);
+          unsubscribe('FriendRequestUpdated', onUpdated);
+        };
     }, [currentUser]);
 
     const onAccept = async (requesterId: string) => {

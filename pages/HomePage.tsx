@@ -6,6 +6,9 @@ import StoryBubble from '../components/StoryBubble';
 import Avatar from '../components/Avatar';
 import Icon from '../components/Icon';
 import type { Chat, User, UserStory } from '../types';
+import { subscribe, unsubscribe } from '../src/realtime/wsClient';
+import type { ChatUpdatedPayload, StoryUpdatedPayload } from '../src/realtime/events';
+import { createDebouncedRefetch } from '../src/realtime/refetch';
 
 const ChatListItem: React.FC<{ chat: Chat; currentUserId: string }> = ({ chat, currentUserId }) => {
   const { navigateToChat } = useAppContext();
@@ -80,7 +83,26 @@ const HomePage: React.FC = () => {
       }
     };
 
+    const debouncedRefetch = createDebouncedRefetch(fetchData, 150);
+
     fetchData();
+
+    const onChatUpdated = (_payload: ChatUpdatedPayload) => {
+      // For this mock app, easiest is refetch chats list (keeps UI intact).
+      debouncedRefetch();
+    };
+
+    const onStoryUpdated = (_payload: StoryUpdatedPayload) => {
+      debouncedRefetch();
+    };
+
+    subscribe('ChatUpdated', onChatUpdated);
+    subscribe('StoryUpdated', onStoryUpdated);
+
+    return () => {
+      unsubscribe('ChatUpdated', onChatUpdated);
+      unsubscribe('StoryUpdated', onStoryUpdated);
+    };
   }, [currentUser?.id]);
 
   // Sort chats by the timestamp of their last message

@@ -1,6 +1,9 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { getUserById } from '../backend/services';
 import type { User } from '../types';
+import { subscribe, unsubscribe } from '../src/realtime/wsClient';
+import type { NotificationCountUpdatedPayload, FriendRequestCreatedPayload, FriendRequestUpdatedPayload } from '../src/realtime/events';
+import { createDebouncedRefetch } from '../src/realtime/refetch';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -46,6 +49,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error("Failed to refresh user data:", error);
     }
   };
+
+  // Realtime: refresh current user on relevant events (debounced to avoid refetch spam)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const debouncedRefresh = createDebouncedRefetch(() => refreshCurrentUser(), 150);
+
+    const onNotificationCount = (payload: NotificationCountUpdatedPayload) => {
+      if (payload.userId !== currentUser.id) return;
+      // We keep the single source of truth as currentUser.friendRequestsReceived,
+      // so just refresh user (mock "refetch").
+      debouncedRefresh();
+    };
+
+    const onFriendCreated = (payload: FriendRequestCreatedPayload) => {
+      if (payload.toId !== currentUser.id && payload.fromId !== currentUser.id) return;
+      debouncedRefresh();
+    };
+
+    const onFriendUpdated = (payload: FriendRequestUpdatedPayload) => {
+      if (payload.toId !== currentUser.id && payload.fromId !== currentUser.id) return;
+      debouncedRefresh();
+    };
+
+    subscribe('NotificationCountUpdated', onNotificationCount);
+    subscribe('FriendRequestCreated', onFriendCreated);
+    subscribe('FriendRequestUpdated', onFriendUpdated);
+
+    return () => {
+      unsubscribe('NotificationCountUpdated', onNotificationCount);
+      unsubscribe('FriendRequestCreated', onFriendCreated);
+      unsubscribe('FriendRequestUpdated', onFriendUpdated);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   // Derive notification count from the current user's friend requests
   const notificationCount = currentUser?.friendRequestsReceived?.length ?? 0;

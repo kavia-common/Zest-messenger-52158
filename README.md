@@ -2,6 +2,51 @@
 
 This guide explains the app's current architecture, which uses a **simulated backend** to mimic a Node.js/Express server connected to a MongoDB Atlas database. This setup removes the dependency on Firebase and allows for development without a live backend.
 
+## Realtime (Mock WebSocket Layer)
+
+This SPA now includes a lightweight **WebSocket-like realtime layer** that works entirely in the browser (no external services).
+
+- Transport: `BroadcastChannel` (multi-tab capable)
+- Purpose: Simulate server push for events such as:
+  - `MessageCreated`
+  - `FriendRequestCreated`
+  - `FriendRequestUpdated`
+  - `ChatUpdated`
+  - `NotificationCountUpdated`
+  - `StoryUpdated` (placeholder for future work)
+
+### Enable / Disable
+
+Realtime is guarded by a Vite feature flag:
+
+- `VITE_ENABLE_REALTIME=true` enables realtime behavior
+- If disabled, the app continues to function with the existing “refetch on navigation / action” patterns.
+
+The code reads this via `import.meta.env.VITE_ENABLE_REALTIME` (no secrets involved).
+
+### How it works (High level)
+
+- `src/realtime/wsClient.ts` exposes a small WebSocket-like API:
+  - `connect()`, `subscribe()`, `unsubscribe()`, `emit()`
+- Under the hood it uses `BroadcastChannel`, so opening two tabs simulates two clients.
+- The simulated backend (`backend/services.ts`) emits events *after* successful mock mutations:
+  - sending a message
+  - sending / accepting / declining friend requests
+- Pages and contexts subscribe to events and do lightweight refetches:
+  - `ChatPage` appends incoming messages for the active chat
+  - `NotificationsPage` refreshes requests list
+  - `HomePage` refreshes chats/stories summaries
+  - `AuthContext` refreshes current user so the bottom-nav badge stays accurate across tabs
+
+### Extending to a real backend later
+
+To replace the mock hub with a real server:
+- Keep the event types in `src/realtime/events.ts`
+- Swap `BroadcastChannel` transport in `src/realtime/wsClient.ts` with:
+  - native `WebSocket` (`ws://...`) OR
+  - Socket.IO client
+- Update server to broadcast the same event names/payloads when data changes.
+
 ## Current Architecture: Simulated Backend
 
 The application currently operates entirely on the client-side. All backend logic and data storage are handled by a mock service located at `backend/services.ts`.

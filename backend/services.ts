@@ -1,4 +1,5 @@
 import type { User, Chat, Message, UserStory, FriendRequest, SignUpData, LoginData } from '../types';
+import { emit } from '../src/realtime/wsClient';
 
 // --- MOCK DATABASE ---
 // In a real app, this data would live in a MongoDB Atlas database.
@@ -194,6 +195,13 @@ export const handleSendFriendRequest = async (fromId: string, toId: string) => {
     if (fromUser && toUser) {
         fromUser.friendRequestsSent = [...(fromUser.friendRequestsSent || []), toId];
         toUser.friendRequestsReceived = [...(toUser.friendRequestsReceived || []), fromId];
+
+        // Realtime: notify other tabs/clients
+        emit('FriendRequestCreated', { fromId, toId });
+        emit('NotificationCountUpdated', {
+          userId: toId,
+          notificationCount: (toUser.friendRequestsReceived || []).length,
+        });
     } else {
         throw new Error("User not found.");
     }
@@ -236,11 +244,20 @@ export const handleAcceptFriendRequest = async (currentUserId: string, requester
     requesterUser.friendRequestsSent = (requesterUser.friendRequestsSent || []).filter(id => id !== currentUserId);
 
     // Create a new chat for them
+    const chatId = `chat-${Date.now()}`;
     mockDB.chats.push({
-      id: `chat-${Date.now()}`,
+      id: chatId,
       userIds: [currentUserId, requesterId],
       messages: [],
       unreadCount: 0,
+    });
+
+    // Realtime updates
+    emit('FriendRequestUpdated', { fromId: requesterId, toId: currentUserId, status: 'accepted', chatId });
+    emit('ChatUpdated', { chatId, reason: 'friendship' });
+    emit('NotificationCountUpdated', {
+      userId: currentUserId,
+      notificationCount: (currentUser.friendRequestsReceived || []).length,
     });
 }
 
@@ -254,6 +271,13 @@ export const handleDeclineFriendRequest = async (currentUserId: string, requeste
     // Remove from requests lists
     currentUser.friendRequestsReceived = (currentUser.friendRequestsReceived || []).filter(id => id !== requesterId);
     requesterUser.friendRequestsSent = (requesterUser.friendRequestsSent || []).filter(id => id !== currentUserId);
+
+    // Realtime updates
+    emit('FriendRequestUpdated', { fromId: requesterId, toId: currentUserId, status: 'declined' });
+    emit('NotificationCountUpdated', {
+      userId: currentUserId,
+      notificationCount: (currentUser.friendRequestsReceived || []).length,
+    });
 }
 
 // --- CHAT SERVICES ---
@@ -308,6 +332,11 @@ export const handleSendMessage = async (chatId: string, senderId: string, text: 
     };
     mockDB.messages.push(newMessage);
     chat.messages.push(newMessage.id);
+
+    // Realtime: broadcast message + chat updated
+    emit('MessageCreated', { chatId, message: newMessage, senderUserId: senderId });
+    emit('ChatUpdated', { chatId, reason: 'message' });
+
     return newMessage;
 };
 

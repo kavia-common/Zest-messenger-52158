@@ -7,6 +7,8 @@ import ChatInput from '../components/ChatInput';
 import Icon from '../components/Icon';
 import Avatar from '../components/Avatar';
 import type { Reaction, Chat, User, Message } from '../types';
+import { subscribe, unsubscribe } from '../src/realtime/wsClient';
+import type { MessageCreatedPayload } from '../src/realtime/events';
 
 interface ChatPageProps {
   chatId: string;
@@ -40,6 +42,22 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatId }) => {
     };
 
     fetchChatData();
+
+    const onMessageCreated = (payload: MessageCreatedPayload) => {
+      if (payload.chatId !== chatId) return;
+
+      // Append incoming messages (avoid duplicates by id).
+      setChat((prev) => {
+        if (!prev) return prev;
+        if (prev.messages.some((m) => m.id === payload.message.id)) return prev;
+        return { ...prev, messages: [...prev.messages, payload.message] };
+      });
+    };
+
+    subscribe('MessageCreated', onMessageCreated);
+    return () => {
+      unsubscribe('MessageCreated', onMessageCreated);
+    };
   }, [chatId, currentUser]);
   
   useEffect(() => {
